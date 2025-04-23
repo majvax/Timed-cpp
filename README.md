@@ -1,4 +1,4 @@
-# Timed++ (or Timed-cpp) is a minimal and modern, C++17 header-only library for timing and benchmarking code with style.
+# Timed++ (or Timed-cpp) is a minimal and modern, C++2O header-only library for timing and benchmarking code with style.
 ## Designed for clarity and simplicity, it leverages modern C++ features to make profiling your functions and code blocks effortless and accurate.
 
 ## Features
