@@ -6,11 +6,17 @@
 #include <numeric>
 
 
-using namespace std::chrono_literals;
-
-
 namespace Timer
 {
+
+
+    constexpr int64_t ns_in_us = 1000;
+    constexpr int64_t ns_in_ms = ns_in_us * 1000;
+    constexpr int64_t ns_in_s  = ns_in_ms * 1000;
+    constexpr int64_t ns_in_min = 60 * ns_in_s;
+    constexpr int64_t ns_in_hr  = 60 * ns_in_min;
+
+
     struct automatic_duration {};
 
     template <typename duration>
@@ -52,21 +58,20 @@ namespace Timer
     template <>
     struct duration_string<automatic_duration> {
         static const std::string to_string(int64_t elapsed) noexcept {
-            if (elapsed < (1us).count()) {
+            if (elapsed < ns_in_us) {
                 return std::to_string(elapsed) + " ns";
-            } else if (elapsed < (1ms).count()) {
+            } else if (elapsed < ns_in_ms) {
                 return std::to_string(elapsed / 1000.0) + " us";
-            } else if (elapsed < (1s).count()) {
+            } else if (elapsed < ns_in_s) {
                 return std::to_string(elapsed / 1'000'000.0) + " ms";
-            } else if (elapsed < (1min).count()) {
+            } else if (elapsed < ns_in_min) {
                 return std::to_string(elapsed / 1'000'000'000.0) + " s";
-            } else if (elapsed < (1h).count()) {
+            } else if (elapsed < ns_in_hr) {
                 return std::to_string(elapsed / 60'000'000'000.0) + " m";
             } else {
                 return std::to_string(elapsed / 3'600'000'000'000.0) + " h";
             }
         }
-
     };
 
 
@@ -84,9 +89,9 @@ namespace Timer
         };
     
     private:
-        clock::time_point start;
-        clock::time_point end;
-        const Settings settings;
+        typename clock::time_point start;
+        typename clock::time_point end;
+        Settings settings;
 
     public:
         Timer(const Timer&) = delete;
@@ -95,7 +100,7 @@ namespace Timer
         Timer& operator=(Timer&&) = delete;
     
         template <typename F, typename... Args>
-        inline Timer(Settings settings, F&& function, Args&&... args) noexcept(std::) : start(clock::now()), settings(settings)
+        inline Timer(Settings settings, F&& function, Args&&... args) noexcept : start(clock::now()), settings(settings)
         {
             std::forward<F>(function)(std::forward<Args>(args)...);
             end = clock::now();
@@ -142,7 +147,7 @@ namespace Timer
 
     private:
         std::array<int64_t, N> timers;
-        const Settings settings;
+        Settings settings;
         
     public:
 
