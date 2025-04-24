@@ -1,3 +1,59 @@
+/*
+ _____________________________________________________________
+|                                                             |
+|   Timed++ - Lightweight C++20 Timing Utilities              |
+|_____________________________________________________________|
+
+
+    ---------------------------------------------------------------------------
+    Timed++ (or Timed-cpp) is a minimal and modern, C++2O header-only library 
+    for timing and benchmarking code with style.
+    Designed for clarity and simplicity, it leverages modern C++ features 
+    to make profiling your functions and code blocks effortless and accurate.
+
+
+    Features:
+      - No external dependencies, header-only, portable
+      - Automatic and average timers
+      - Customizable output format with named placeholders:
+            {filename}, {row}, {name}, {function}, {result}
+      - Uses std::chrono and std::source_location for precise timing and context
+
+    Example usage:
+
+        #include "timer.hpp"
+
+        int main()
+        {
+            {
+                // Time the foo function with 10 iterations
+                Timer::AverageTimer<10>({"foo"}, foo, 1, 2);
+            }
+            {
+                // Time the fibonacci function once and output the result in seconds
+                Timer::Timer<std::chrono::seconds>({"fibonacci"}, fibonacci, 41);
+            }
+        }
+
+
+    Author: majvax
+    Repository: https://github.com/majvax/Timed-cpp
+    Version: 0.1.0 pre-alpha
+
+
+    Quote from the author:
+    "If I learn something new while creating this library,
+          it's that std::format is absolute cinema."
+    ---------------------------------------------------------------------------
+
+    TODO: 
+        - abstract the output formatting to a separate class
+        - add more examples and documentation
+        - add more tests and benchmarks
+        - add more features and utilities
+*/
+
+
 #include <iostream>
 #include <string_view>
 #include <string>
