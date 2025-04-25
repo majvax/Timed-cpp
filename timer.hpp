@@ -6,9 +6,9 @@
 
 
     ---------------------------------------------------------------------------
-    Timed++ (or Timed-cpp) is a minimal and modern, C++2O header-only library 
+    Timed++ (or Timed-cpp) is a minimal and modern, C++2O header-only library
     for timing and benchmarking code with style.
-    Designed for clarity and simplicity, it leverages modern C++ features 
+    Designed for clarity and simplicity, it leverages modern C++ features
     to make profiling your functions and code blocks effortless and accurate.
 
 
@@ -46,12 +46,14 @@
           it's that std::format is absolute cinema."
     ---------------------------------------------------------------------------
 
-    TODO: 
+    TODO:
         - abstract the output formatting to a separate class
         - add more examples and documentation
         - add more tests and benchmarks
-        - add more features and utilities
-        - base timer class to inherit from
+        - add more statistics (variance, standard deviation, etc.)
+        - add a results class to store the results of the timers
+        - add a way to save the results to a file or a database ?
+        
 */
 
 
@@ -64,148 +66,201 @@
 #include <concepts>         // std::same_as, std::is_base_of_v, std::is_same_v
 #include <utility>          // std::forward
 #include <source_location>  // std::source_location
+#include <any>              // std::any
+#include <limits>           // std::numeric_limits
+#include <algorithm>        // std::sort
 
-
-namespace Timer
+namespace Timed
 {
 
     struct automatic_duration {};
 
-
-    template <typename T>
-    concept Duration = std::is_base_of_v<std::chrono::duration<typename T::rep, typename T::period>, T>
-                    || std::same_as<T, automatic_duration>;
-
-    
-    constexpr int64_t ns_in_us = 1000;
-    constexpr int64_t ns_in_ms = ns_in_us * 1000;
-    constexpr int64_t ns_in_s  = ns_in_ms * 1000;
-    constexpr int64_t ns_in_min = 60 * ns_in_s;
-    constexpr int64_t ns_in_hr  = 60 * ns_in_min;
-
-
-    struct BaseTimerSettings
+    namespace detail
     {
-        std::string_view name;
-        std::string format = "[{filename}:{row} in `{function}` -- {name}] -> {result}";
-        bool show_output = true;
-        std::source_location location = std::source_location::current();
-        std::ostream& output_stream = std::cout;
+        template <typename T>
+        concept Duration = std::is_base_of_v<std::chrono::duration<typename T::rep, typename T::period>, T>
+                        || std::same_as<T, automatic_duration>;
 
 
-        std::string_view get_name() const noexcept { return name; }
-        std::string_view get_format() const noexcept { return format; }
-        std::string_view get_filename() const noexcept { return location.file_name(); }
-        int get_line() const noexcept { return location.line(); }
-        std::string_view get_function_name() const noexcept { return location.function_name(); }
-    };
-    
-    class BaseTimerFormatter
-    {
-    protected:
-        static const std::string automatic_duration_to_string(int64_t elapsed) noexcept {
-            if (elapsed < ns_in_us) {
-                return std::to_string(elapsed) + " ns";
-            } else if (elapsed < ns_in_ms) {
-                return std::to_string(elapsed / 1000.0) + " us";
-            } else if (elapsed < ns_in_s) {
-                return std::to_string(elapsed / 1'000'000.0) + " ms";
-            } else if (elapsed < ns_in_min) {
-                return std::to_string(elapsed / 1'000'000'000.0) + " s";
-            } else if (elapsed < ns_in_hr) {
-                return std::to_string(elapsed / 60'000'000'000.0) + " m";
-            } else {
-                return std::to_string(elapsed / 3'600'000'000'000.0) + " h";
-            }
-        }
+        constexpr int64_t ns_in_us = 1000;
+        constexpr int64_t ns_in_ms = ns_in_us * 1000;
+        constexpr int64_t ns_in_s  = ns_in_ms * 1000;
+        constexpr int64_t ns_in_min = 60 * ns_in_s;
+        constexpr int64_t ns_in_hr  = 60 * ns_in_min;
 
-        template <Duration duration>
-        static constexpr std::string_view duration_suffix() {
-            if constexpr (std::same_as<duration, std::chrono::nanoseconds>) return "ns";
-            else if constexpr (std::same_as<duration, std::chrono::microseconds>) return "us";
-            else if constexpr (std::is_same_v<duration, std::chrono::milliseconds>) return "ms";
-            else if constexpr (std::is_same_v<duration, std::chrono::seconds>) return "s";
-            else if constexpr (std::is_same_v<duration, std::chrono::minutes>) return "m";
-            else if constexpr (std::is_same_v<duration, std::chrono::hours>) return "h";
-            else return "unknown";
-        }
 
-        template <typename S>
-        requires std::derived_from<S, BaseTimerSettings>
-        std::string format_output(std::string_view result, S& settings) const noexcept
+
+        struct BaseTimerSettings
         {
-            std::string out = settings.format;
+            std::string_view name;
+            std::string format = "[{filename}:{row} in `{function}` -- {name}] -> {result}";
+            bool show_output = true;
+            std::source_location location = std::source_location::current();
+            std::ostream& output_stream = std::cout;
 
-            auto replace = [&out](const std::string& what, const std::string_view& with) {
-                size_t pos = 0;
-                while ((pos = out.find(what, pos)) != std::string::npos) {
-                    out.replace(pos, what.length(), with);
-                    pos += with.length();
+
+            std::string_view get_name() const noexcept { return name; }
+            std::string_view get_format() const noexcept { return format; }
+            std::string_view get_filename() const noexcept { return location.file_name(); }
+            int get_line() const noexcept { return location.line(); }
+            std::string_view get_function_name() const noexcept { return location.function_name(); }
+        };
+
+        class BaseTimerFormatter
+        {
+        protected:
+            static const std::string automatic_duration_to_string(int64_t elapsed) noexcept {
+                if (elapsed < ns_in_us) {
+                    return std::to_string(elapsed) + " ns";
+                } else if (elapsed < ns_in_ms) {
+                    return std::to_string(elapsed / 1000.0) + " us";
+                } else if (elapsed < ns_in_s) {
+                    return std::to_string(elapsed / 1'000'000.0) + " ms";
+                } else if (elapsed < ns_in_min) {
+                    return std::to_string(elapsed / 1'000'000'000.0) + " s";
+                } else if (elapsed < ns_in_hr) {
+                    return std::to_string(elapsed / 60'000'000'000.0) + " m";
+                } else {
+                    return std::to_string(elapsed / 3'600'000'000'000.0) + " h";
                 }
-            };
-            replace("{filename}", settings.get_filename());
-            replace("{row}", std::to_string(settings.get_line()));
-            replace("{name}", settings.get_name());
-            replace("{function}", settings.get_function_name());
-            replace("{result}", result);
-            return out;
-        }
-    };
+            }
+
+            template <detail::Duration duration>
+            static constexpr std::string_view duration_suffix() {
+                if constexpr (std::same_as<duration, std::chrono::nanoseconds>) return "ns";
+                else if constexpr (std::same_as<duration, std::chrono::microseconds>) return "us";
+                else if constexpr (std::is_same_v<duration, std::chrono::milliseconds>) return "ms";
+                else if constexpr (std::is_same_v<duration, std::chrono::seconds>) return "s";
+                else if constexpr (std::is_same_v<duration, std::chrono::minutes>) return "m";
+                else if constexpr (std::is_same_v<duration, std::chrono::hours>) return "h";
+                else return "unknown";
+            }
+
+            template <typename S>
+            requires std::derived_from<S, BaseTimerSettings>
+            std::string format_output(std::string_view result, S& settings) const noexcept
+            {
+                std::string out = settings.format;
+
+                auto replace = [&out](const std::string& what, const std::string_view& with) {
+                    size_t pos = 0;
+                    while ((pos = out.find(what, pos)) != std::string::npos) {
+                        out.replace(pos, what.length(), with);
+                        pos += with.length();
+                    }
+                };
+                replace("{filename}", settings.get_filename());
+                replace("{row}", std::to_string(settings.get_line()));
+                replace("{name}", settings.get_name());
+                replace("{function}", settings.get_function_name());
+                replace("{result}", result);
+                return out;
+            }
+        };
+
+        template <Duration duration = automatic_duration, typename clock = std::chrono::steady_clock>
+        class BaseTimer : public BaseTimerFormatter
+        {
+        public:
+            using Settings = BaseTimerSettings;
+
+        private:
+            clock::time_point m_start;
+            clock::time_point m_end;
+            Settings settings;
+
+        protected:
+            BaseTimer(Settings settings) noexcept : settings(settings)
+            {
+            }
+
+            ~BaseTimer() noexcept = default;
+
+            BaseTimer(const BaseTimer&) = delete;
+            BaseTimer& operator=(const BaseTimer&) = delete;
+            BaseTimer(BaseTimer&&) = delete;
+            BaseTimer& operator=(BaseTimer&&) = delete;
+
+            void start_timer() noexcept { m_start = clock::now(); }
+            void end_timer() noexcept { m_end = clock::now(); }
+            void show_result() const noexcept
+            {
+                if (!settings.show_output) return;
+
+                if constexpr (std::is_same_v<duration, automatic_duration>) {
+                    auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(m_end - m_start).count();
+                    settings.output_stream << format_output(automatic_duration_to_string(elapsed), settings) << std::endl;
+
+                } else {
+                    auto elapsed = std::chrono::duration_cast<duration>(m_end - m_start).count();
+                    settings.output_stream << format_output(std::to_string(elapsed) + ' ' + std::string(duration_suffix<duration>()), settings) << std::endl;
+                }
+            }
 
 
-    template <Duration duration = automatic_duration, typename clock = std::chrono::steady_clock>
-    class Timer : public BaseTimerFormatter
+            [[nodiscard]] const auto get_start() const noexcept { return m_start; }
+            [[nodiscard]] const auto get_end() const noexcept { return m_end; }
+            [[nodiscard]] const auto get_elapsed() const noexcept
+            {
+                return std::chrono::duration_cast<std::chrono::nanoseconds>(m_end - m_start).count();
+            }
+
+
+        };
+
+
+    } // namespace detail
+
+
+    template <detail::Duration duration = automatic_duration, typename clock = std::chrono::steady_clock>
+    class FunctionTimer : public detail::BaseTimer<duration, clock>
     {
     public:
-        using Settings = BaseTimerSettings;
+        using Base = detail::BaseTimer<duration, clock>;
+        using Settings = Base::Settings;
 
     private:
-        Settings settings;
-        clock::time_point start;
-        clock::time_point end;
+        std::any fresult;
 
     public:
-        Timer(const Timer&) = delete;
-        Timer& operator=(const Timer&) = delete;
-        Timer(Timer&&) = delete;
-        Timer& operator=(Timer&&) = delete;
-    
-        template <typename F, typename... Args>
-        Timer(Settings settings, F&& function, Args&&... args) noexcept : settings(settings), start(clock::now())
+        FunctionTimer(const FunctionTimer&) = delete;
+        FunctionTimer& operator=(const FunctionTimer&) = delete;
+        FunctionTimer(FunctionTimer&&) = delete;
+        FunctionTimer& operator=(FunctionTimer&&) = delete;
+
+        template <typename Callable, typename... Args>
+        FunctionTimer(Settings settings, Callable&& function, Args&&... args) noexcept : Base(settings)
         {
-            std::forward<F>(function)(std::forward<Args>(args)...);
-            end = clock::now();
+            this->start_timer();
+            fresult = std::forward<Callable>(function)(std::forward<Args>(args)...);
+            this->end_timer();
         }
 
-        ~Timer() noexcept
+        ~FunctionTimer() noexcept
         {
-            if (!settings.show_output) return;
-
-            if constexpr (std::is_same_v<duration, automatic_duration>) {
-                auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
-                settings.output_stream << format_output(automatic_duration_to_string(elapsed), settings) << std::endl;
-
-            } else {
-                auto elapsed = std::chrono::duration_cast<duration>(end - start).count();
-                settings.output_stream << format_output(std::to_string(elapsed) + ' ' + std::string(duration_suffix<duration>()), settings) << std::endl;
-            }
+            this->show_result();
         }
 
-
-        [[nodiscard]] const auto get_elapsed() const noexcept
-        { 
-            return std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count();
+        template <typename T>
+        [[nodiscard]] const auto get_result() const noexcept
+        {
+            return std::any_cast<T>(fresult);
         }
+        [[nodiscard]] const auto get_result() const noexcept
+        {
+            return fresult;
+        }
+
+        using Base::get_elapsed;
     };
 
-
-    template <size_t N, Duration duration = automatic_duration, typename clock = std::chrono::steady_clock>
-    class AverageTimer : public BaseTimerFormatter
+    template <size_t N, detail::Duration duration = automatic_duration, typename clock = std::chrono::steady_clock>
+    class AverageFunctionTimer : public detail::BaseTimerFormatter
     {
 
 
     public:
-        using ChildTimer = Timer<duration, clock>;
+        using ChildTimer = FunctionTimer<duration, clock>;
         using ChildSettings = ChildTimer::Settings;
 
         struct Settings: public ChildSettings
@@ -223,29 +278,43 @@ namespace Timer
 
     private:
             std::array<int64_t, N> timers;
+            std::array<std::any, N> fresults;
             Settings settings;
-        
-    public:
-        
-        
-        AverageTimer(const AverageTimer&) = delete;
-        AverageTimer& operator=(const AverageTimer&) = delete;
-        AverageTimer(AverageTimer&&) = delete;
-        AverageTimer& operator=(AverageTimer&&) = delete;
 
-        template <typename F, typename... Args>
-        AverageTimer(Settings settings, F&& function, Args&&... args) : settings(settings)
+            int64_t max_time = std::numeric_limits<int64_t>::min();
+            int64_t min_time = std::numeric_limits<int64_t>::max();
+            int64_t median_time = 0;
+            int64_t total_time = 0;
+
+    public:
+        AverageFunctionTimer(const AverageFunctionTimer&) = delete;
+        AverageFunctionTimer& operator=(const AverageFunctionTimer&) = delete;
+        AverageFunctionTimer(AverageFunctionTimer&&) = delete;
+        AverageFunctionTimer& operator=(AverageFunctionTimer&&) = delete;
+
+        template <typename Callable, typename... Args>
+        AverageFunctionTimer(Settings settings, Callable&& function, Args&&... args) : settings(settings)
         {
-            for (auto& t : timers)
-            {
+            for (size_t i = 0; i < N; ++i) {
                 ChildSettings timer_settings = this->settings.get_settings_t();
                 ChildTimer timer(std::move(timer_settings), function, std::forward<Args>(args)...);
-                t = timer.get_elapsed();
+                int64_t t = timer.get_elapsed();
+                timers[i] = t;
+                fresults[i] = timer.get_result();
+                total_time += t;
+                max_time = std::max(max_time, t);
+                min_time = std::min(min_time, t);
+            }
+
+            std::sort(timers.begin(), timers.end());
+            if constexpr ((N & 1) == 0) {
+                median_time = (timers[N / 2 - 1] + timers[N / 2]) / 2;
+            } else {
+                median_time = timers[N / 2];
             }
         }
 
-
-        ~AverageTimer()
+        ~AverageFunctionTimer()
         {
             if (!settings.show_output) return;
 
@@ -258,62 +327,61 @@ namespace Timer
             }
         }
 
+        template <typename T>
+        [[nodiscard]] const auto get_result(size_t index) const noexcept
+        {
+            static_assert(index < N, "Index out of bounds");
+            return std::any_cast<T>(fresults[index]);
+        }
+        [[nodiscard]] const auto get_result(size_t index) const noexcept
+        {
+            static_assert(index < N, "Index out of bounds");
+            return fresults[index];
+        }
+
+        [[nodiscard]] const auto get_max_time() const noexcept { return max_time; }
+        [[nodiscard]] const auto get_min_time() const noexcept { return min_time; }
+        [[nodiscard]] const auto get_median_time() const noexcept { return median_time; }
+        [[nodiscard]] const auto get_total_time() const noexcept { return total_time; }
+        [[nodiscard]] const auto get_average_time() const noexcept
+        {
+            return std::accumulate(timers.begin(), timers.end(), 0LL) / N;
+        }
     };
 
 
-    template <Duration duration = automatic_duration, typename clock = std::chrono::steady_clock>
-    class BlockTimer : public BaseTimerFormatter
+    template <detail::Duration duration = automatic_duration, typename clock = std::chrono::steady_clock>
+    class BlockTimer : public detail::BaseTimer<duration, clock>
     {
     public:
-        using Settings = BaseTimerSettings;
+        using Base = detail::BaseTimer<duration, clock>;
+        using Settings = typename Base::Settings;
 
-    private:
-        Settings settings;
-        clock::time_point start;
-        clock::time_point m_end;
-
-    public:
         BlockTimer(const BlockTimer&) = delete;
         BlockTimer& operator=(const BlockTimer&) = delete;
         BlockTimer(BlockTimer&&) = delete;
         BlockTimer& operator=(BlockTimer&&) = delete;
-    
-        BlockTimer(Settings settings) noexcept : settings(settings), start(clock::now())
+
+        BlockTimer(Settings settings) noexcept : Base(settings)
         {
+            this->start_timer();
         }
+        ~BlockTimer() noexcept = default;
 
         void end() noexcept
         {
-            m_end = clock::now();
+            this->end_timer();
         }
 
-        void show_result() const noexcept
-        {
-            if (!settings.show_output) return;
-
-            if constexpr (std::is_same_v<duration, automatic_duration>) {
-                auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(m_end - start).count();
-                settings.output_stream << format_output(automatic_duration_to_string(elapsed), settings) << std::endl;
-
-            } else {
-                auto elapsed = std::chrono::duration_cast<duration>(m_end - start).count();
-                settings.output_stream << format_output(std::to_string(elapsed) + ' ' + std::string(duration_suffix<duration>()), settings) << std::endl;
-            }
-        }
 
         void end_and_show_result() noexcept
         {
-            end();
-            show_result();
+            this->end_timer();
+            this->show_result();
         }
 
+        using Base::show_result;
+        using Base::get_elapsed;
+    };
 
-        [[nodiscard]] const auto get_elapsed() const noexcept
-        { 
-            return std::chrono::duration_cast<std::chrono::nanoseconds>(m_end - start).count();
-        }
-    }; 
-    
-
-
-}
+} // namespace Timed

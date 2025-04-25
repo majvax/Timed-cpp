@@ -24,18 +24,18 @@ int some_function_that_takes_a_while(int a, int b)
     return a + b;
 }
 
-
 int main()
 {
     {
-        Timer::AverageTimer<10>({{"foo"}}, foo, 1, 2);
+        Timed::AverageFunctionTimer<10>({{"foo"}}, foo, 1, 2);
     }
 
     {
-        Timer::Timer<std::chrono::seconds>({"fibonacci"}, fibonacci, 41);
+        Timed::FunctionTimer<std::chrono::seconds>({"fibonacci"}, fibonacci, 41);
     }
 
-    auto timer = Timer::BlockTimer({"some_function_that_takes_a_while"});
+    
+    auto timer = Timed::BlockTimer({"some_function_that_takes_a_while"});
 
     some_function_that_takes_a_while(1, 2);
 
