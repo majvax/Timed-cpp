@@ -38,7 +38,7 @@
 
     Author: majvax
     Repository: https://github.com/majvax/Timed-cpp
-    Version: 0.2.0 pre-alpha
+    Version: 0.3.0 pre-alpha
 
 
     Quote from the author:
@@ -53,7 +53,7 @@
         - add more statistics (variance, standard deviation, etc.)
         - add a results class to store the results of the timers
         - add a way to save the results to a file or a database ?
-        
+
 */
 
 
