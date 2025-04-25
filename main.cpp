@@ -1,4 +1,6 @@
 #include "timer.hpp"
+#include <thread>
+
 
 int foo(int a, int b)
 {
@@ -16,15 +18,29 @@ int fibonacci(int n)
 }
 
 
+int some_function_that_takes_a_while(int a, int b)
+{
+    std::this_thread::sleep_for(std::chrono::seconds(3));
+    return a + b;
+}
+
+
 int main()
 {
     {
-        Timer::AverageTimer<10>({"foo"}, foo, 1, 2);
+        Timer::AverageTimer<10>({{"foo"}}, foo, 1, 2);
     }
 
     {
         Timer::Timer<std::chrono::seconds>({"fibonacci"}, fibonacci, 41);
     }
+
+    auto timer = Timer::BlockTimer({"some_function_that_takes_a_while"});
+
+    some_function_that_takes_a_while(1, 2);
+
+    timer.end_and_show_result();
+
 
 
     return 0;
